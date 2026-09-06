@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XTTS Studio — Voice Synthesis & Cloning</title>
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- HEADER -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+            <line x1="12" y1="19" x2="12" y2="23"></line>
+            <line x1="8" y1="23" x2="16" y2="23"></line>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-title">XTTS Studio</div>
+          <div class="brand-sub">Coqui XTTS v2 • Voice Cloning</div>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <div class="status-badge" id="engineStatus">
+          <span class="status-dot"></span>
+          <span class="status-text">Checking XTTS...</span>
+        </div>
+        <div class="telemetry-pill">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+            <rect x="9" y="9" width="6" height="6" />
+          </svg>
+          <span>Ryzen 7 CPU (100% VRAM Free)</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button class="btn btn-secondary btn-sm" id="btnOpenFolder" title="Open voiceover folder in Dolphin">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+          Audio Files
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN STUDIO -->
+    <main class="studio-layout">
+      <!-- LEFT CONFIG PANEL -->
+      <aside class="control-panel">
+        <!-- Speaker Voice -->
+        <section class="panel-section">
+          <div class="section-header">
+            <span class="section-label">Speaker Reference Voice</span>
+            <button type="button" class="link-btn" id="btnPreviewVoice">Audition Sample</button>
+          </div>
+          <div class="voice-select-row">
+            <select id="voiceSelect" class="form-select">
+              <option value="narrator_default.wav">Narrator Default</option>
+            </select>
+          </div>
+          <!-- Upload custom sample dropzone -->
+          <div class="upload-box" id="dropZone">
+            <input type="file" id="voiceUploadInput" accept=".wav" style="display:none">
+            <span class="upload-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </span>
+            <span class="upload-text">Click or drop custom reference WAV</span>
+          </div>
+        </section>
+
+        <!-- Language Selector -->
+        <section class="panel-section">
+          <div class="section-label">Language</div>
+          <select id="languageSelect" class="form-select">
+            <option value="en" selected>English (en)</option>
+            <option value="tr">Turkish (tr)</option>
+            <option value="de">German (de)</option>
+            <option value="es">Spanish (es)</option>
+            <option value="fr">French (fr)</option>
+            <option value="it">Italian (it)</option>
+            <option value="ja">Japanese (ja)</option>
+            <option value="pt">Portuguese (pt)</option>
+            <option value="pl">Polish (pl)</option>
+            <option value="ru">Russian (ru)</option>
+            <option value="ar">Arabic (ar)</option>
+            <option value="zh-cn">Chinese (zh-cn)</option>
+          </select>
+        </section>
+
+        <!-- Script Textarea & Timing Meter -->
+        <section class="panel-section flex-grow">
+          <div class="section-header">
+            <span class="section-label">Script / Speech Text</span>
+            <button type="button" class="link-btn" id="btnClearText">Clear</button>
+          </div>
+          <textarea id="scriptText" class="form-textarea script-area" rows="6" placeholder="Enter script here. Calibrated for high-energy narration..."></textarea>
+          
+          <!-- YouTube Shorts Pacing Meter -->
+          <div class="shorts-meter" id="shortsMeter">
+            <div class="meter-info">
+              <span class="meter-words" id="wordCount">0 words</span>
+              <span class="meter-dot">•</span>
+              <span class="meter-chars" id="charCount">0 chars</span>
+              <span class="meter-dot">•</span>
+              <span class="meter-est" id="estDuration">~0.0s est.</span>
+            </div>
+            <div class="meter-badge" id="meterBadge">Shorts Meter</div>
+          </div>
+        </section>
+
+        <!-- Generate Action -->
+        <div class="panel-bottom">
+          <button type="button" id="btnSynthesize" class="btn btn-primary btn-synthesize">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            </svg>
+            <span id="btnSynthesizeText">Synthesize Voiceover</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- RIGHT AUDIO PLAYER & HISTORY -->
+      <section class="player-panel">
+        <!-- Main Active Track Card -->
+        <div class="active-track-card">
+          <div class="track-header">
+            <div class="track-icon">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </div>
+            <div class="track-details">
+              <h2 class="track-title" id="trackTitle">Ready to Synthesize</h2>
+              <div class="track-meta" id="trackMeta">Select a voice, write your script, and hit Synthesize</div>
+            </div>
+          </div>
+
+          <!-- HTML5 Custom Audio Player -->
+          <div class="custom-player">
+            <audio id="audioElement" preload="metadata"></audio>
+            
+            <div class="player-controls">
+              <button class="play-btn" id="btnPlayPause" disabled>
+                <svg id="playIcon" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <svg id="pauseIcon" class="hidden" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                  <rect x="6" y="4" width="4" height="16"></rect>
+                  <rect x="14" y="4" width="4" height="16"></rect>
+                </svg>
+              </button>
+
+              <div class="scrubber-box">
+                <div class="time-display" id="timeCurrent">0:00</div>
+                <input type="range" id="audioScrubber" min="0" max="100" value="0" step="0.1" class="audio-range" disabled>
+                <div class="time-display" id="timeTotal">0:00</div>
+              </div>
+
+              <div class="track-actions">
+                <a id="btnDownloadAudio" class="btn btn-secondary btn-sm disabled" download="voiceover.wav" title="Download WAV">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  WAV
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Generation Reel / History -->
+        <div class="history-section">
+          <div class="history-header">
+            <span class="section-label">Voiceover History</span>
+            <span class="history-count" id="historyCount">0 recordings</span>
+          </div>
+
+          <div class="history-list" id="historyList">
+            <!-- Dynamically populated audio items -->
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

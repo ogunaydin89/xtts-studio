@@ -1,0 +1,4 @@
+# XTTS Studio UI & Server
+# The Studio interface itself is dependency-free and uses standard library Python 3.9+.
+# For the underlying Coqui XTTS synthesis engine, install into an isolated virtual environment:
+# pip install TTS==0.22.0

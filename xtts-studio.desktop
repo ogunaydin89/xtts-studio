@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=XTTS Studio
+Comment=Coqui XTTS v2 Desktop Voice Synthesizer & Cloning Studio
+Exec=/home/helin/Code/xtts-studio/run.sh
+Icon=/home/helin/Code/xtts-studio/static/icon.svg
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Recorder;
+StartupWMClass=127.0.0.1__5222
