@@ -24,7 +24,7 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 VOICES_DIR = os.path.join(BASE_DIR, "voices")
 OUTPUT_DIR = os.path.expanduser("~/Music/AI_Voice")
 
-DEFAULT_VENV = os.path.expanduser("~/Local Ai Production/venv-xtts")
+DEFAULT_VENV = os.path.join(BASE_DIR, ".venv")
 VENV_DIR = os.environ.get("XTTS_VENV", DEFAULT_VENV)
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -167,7 +167,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
         return json.loads(raw.decode("utf-8"))
 
     def handle_api_status(self):
-        tts_bin = os.path.join(VENV_DIR, "bin", "tts")
+        tts_bin = os.path.join(VENV_DIR, "bin", "python")
         is_ready = os.path.isfile(tts_bin) and os.access(tts_bin, os.X_OK)
         voices = [f for f in os.listdir(VOICES_DIR) if f.lower().endswith((".wav", ".mp3", ".flac"))]
 
@@ -261,7 +261,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": "Text is required"}, status_code=400)
             return
 
-        tts_bin = os.path.join(VENV_DIR, "bin", "tts")
+        tts_bin = os.path.join(VENV_DIR, "bin", "python")
         speaker_path = os.path.join(VOICES_DIR, voice_file)
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -276,6 +276,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
 
         cmd = [
             tts_bin,
+            "-m", "TTS.bin.synthesize",
             "--model_name", "tts_models/multilingual/multi-dataset/xtts_v2",
             "--text", text,
             "--out_path", out_path,
