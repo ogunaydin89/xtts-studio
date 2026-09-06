@@ -31,6 +31,30 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(VOICES_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 
+VOICE_FILE_EXTENSIONS = (".wav", ".mp3", ".flac")
+
+# XTTS-v2's 58 built-in pretrained speakers (from speakers_xtts.pth, bundled
+# with the model). Selectable via --speaker_idx instead of --speaker_wav,
+# so no reference audio upload is needed for these.
+BUILTIN_SPEAKERS = [
+    "Aaron Dreschner", "Abrahan Mack", "Adde Michal", "Alexandra Hisakawa",
+    "Alison Dietlinde", "Alma María", "Ana Florence", "Andrew Chipper",
+    "Annmarie Nele", "Asya Anara", "Badr Odhiambo", "Baldur Sanjin",
+    "Barbora MacLean", "Brenda Stern", "Camilla Holmström",
+    "Chandra MacFarland", "Claribel Dervla", "Craig Gutsy", "Daisy Studious",
+    "Damien Black", "Damjan Chapman", "Dionisio Schuyler",
+    "Eugenio Mataracı", "Ferran Simen", "Filip Traverse",
+    "Gilberto Mathias", "Gitta Nikolina", "Gracie Wise", "Henriette Usha",
+    "Ige Behringer", "Ilkin Urbano", "Kazuhiko Atallah", "Kumar Dahl",
+    "Lidiya Szekeres", "Lilya Stainthorpe", "Ludvig Milivoj", "Luis Moray",
+    "Maja Ruoho", "Marcos Rudaski", "Narelle Moon", "Nova Hogarth",
+    "Rosemary Okafor", "Royston Min", "Sofia Hellen", "Suad Qasim",
+    "Szofi Granger", "Tammie Ema", "Tammy Grit", "Tanja Adelina",
+    "Torcull Diarmuid", "Uta Obando", "Viktor Eka", "Viktor Menelaos",
+    "Vjollca Johnnie", "Wulf Carlevaro", "Xavier Hayasaka",
+    "Zacharie Aimilios", "Zofija Kendrick",
+]
+
 last_heartbeat = time.time()
 has_received_heartbeat = False
 server_instance = None
@@ -190,7 +214,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
                     "url": f"/api/voice_preview/{urllib.parse.quote(entry.name)}"
                 })
         voice_files.sort(key=lambda x: x["name"])
-        self.send_json({"voices": voice_files})
+        self.send_json({"voices": voice_files, "builtin_speakers": BUILTIN_SPEAKERS})
 
     def handle_api_history(self):
         audios = []
@@ -262,7 +286,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         tts_bin = os.path.join(VENV_DIR, "bin", "python")
-        speaker_path = os.path.join(VOICES_DIR, voice_file)
+        is_builtin = voice_file in BUILTIN_SPEAKERS or not voice_file.lower().endswith(VOICE_FILE_EXTENSIONS)
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         out_filename = f"Voice_{timestamp}_{lang}.wav"
@@ -281,8 +305,11 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             "--text", text,
             "--out_path", out_path,
             "--language_idx", lang,
-            "--speaker_wav", speaker_path
         ]
+        if is_builtin:
+            cmd += ["--speaker_idx", voice_file]
+        else:
+            cmd += ["--speaker_wav", os.path.join(VOICES_DIR, voice_file)]
 
         t0 = time.time()
         try:

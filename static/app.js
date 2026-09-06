@@ -72,22 +72,52 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const resp = await fetch("/api/voices");
       const data = await resp.json();
-      if (data.voices && data.voices.length > 0) {
-        const cur = voiceSelect.value;
-        voiceSelect.innerHTML = "";
+      const cur = voiceSelect.value;
+
+      const myGroup = document.getElementById("myVoicesGroup");
+      const builtinGroup = document.getElementById("builtinVoicesGroup");
+
+      if (data.voices) {
+        myGroup.innerHTML = "";
         data.voices.forEach(v => {
           const opt = document.createElement("option");
           opt.value = v.name;
           opt.textContent = v.name.replace(".wav", "").replace(/_/g, " ");
-          voiceSelect.appendChild(opt);
+          myGroup.appendChild(opt);
         });
-        if (data.voices.some(v => v.name === cur)) {
-          voiceSelect.value = cur;
-        }
       }
+
+      if (data.builtin_speakers && builtinGroup.childElementCount === 0) {
+        data.builtin_speakers.forEach(name => {
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          builtinGroup.appendChild(opt);
+        });
+      }
+
+      const allValues = Array.from(voiceSelect.options).map(o => o.value);
+      if (allValues.includes(cur)) {
+        voiceSelect.value = cur;
+      }
+      updatePreviewAvailability();
     } catch (e) {}
   }
   loadVoices();
+
+  function isBuiltinVoice(value) {
+    return document.getElementById("builtinVoicesGroup")
+      .querySelector(`option[value="${CSS.escape(value)}"]`) !== null;
+  }
+
+  function updatePreviewAvailability() {
+    const builtin = isBuiltinVoice(voiceSelect.value);
+    btnPreviewVoice.disabled = builtin;
+    btnPreviewVoice.title = builtin
+      ? "Built-in voices have no reference sample to preview — synthesize to hear them"
+      : "";
+  }
+  voiceSelect.addEventListener("change", updatePreviewAvailability);
 
   async function loadHistory() {
     try {

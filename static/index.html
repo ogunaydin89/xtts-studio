@@ -69,7 +69,10 @@
           </div>
           <div class="voice-select-row">
             <select id="voiceSelect" class="form-select">
-              <option value="narrator_default.wav">Narrator Default</option>
+              <optgroup label="My Voices" id="myVoicesGroup">
+                <option value="narrator_default.wav">Narrator Default</option>
+              </optgroup>
+              <optgroup label="Built-in Voices (58)" id="builtinVoicesGroup"></optgroup>
             </select>
           </div>
           <div class="upload-box" id="dropZone">

@@ -204,6 +204,11 @@ body {
 .link-btn:hover {
   text-decoration: underline;
 }
+.link-btn:disabled {
+  color: var(--text-muted, #888);
+  cursor: not-allowed;
+  text-decoration: none;
+}
 
 /* LAYOUT */
 .studio-layout {
