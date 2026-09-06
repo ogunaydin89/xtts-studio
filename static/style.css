@@ -560,3 +560,16 @@ body {
   font-size: 11px;
   color: var(--text-muted);
 }
+
+/* DANGER */
+.btn-danger {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.btn-danger:hover {
+  background-color: #ef4444;
+  color: #ffffff;
+  border-color: #ef4444;
+}

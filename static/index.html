@@ -47,6 +47,13 @@
           </svg>
           Audio Files
         </button>
+        <button class="btn btn-danger btn-sm" id="btnQuit" title="Close studio and shut down">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+            <line x1="12" y1="2" x2="12" y2="12"></line>
+          </svg>
+          Quit Studio
+        </button>
       </div>
     </header>
 
@@ -65,7 +72,6 @@
               <option value="narrator_default.wav">Narrator Default</option>
             </select>
           </div>
-          <!-- Upload custom sample dropzone -->
           <div class="upload-box" id="dropZone">
             <input type="file" id="voiceUploadInput" accept=".wav" style="display:none">
             <span class="upload-icon">
@@ -106,7 +112,6 @@
           </div>
           <textarea id="scriptText" class="form-textarea script-area" rows="6" placeholder="Enter script here. Calibrated for high-energy narration..."></textarea>
           
-          <!-- YouTube Shorts Pacing Meter -->
           <div class="shorts-meter" id="shortsMeter">
             <div class="meter-info">
               <span class="meter-words" id="wordCount">0 words</span>
@@ -133,7 +138,6 @@
 
       <!-- RIGHT AUDIO PLAYER & HISTORY -->
       <section class="player-panel">
-        <!-- Main Active Track Card -->
         <div class="active-track-card">
           <div class="track-header">
             <div class="track-icon">
@@ -148,7 +152,6 @@
             </div>
           </div>
 
-          <!-- HTML5 Custom Audio Player -->
           <div class="custom-player">
             <audio id="audioElement" preload="metadata"></audio>
             
@@ -183,16 +186,12 @@
           </div>
         </div>
 
-        <!-- Generation Reel / History -->
         <div class="history-section">
           <div class="history-header">
             <span class="section-label">Voiceover History</span>
             <span class="history-count" id="historyCount">0 recordings</span>
           </div>
-
-          <div class="history-list" id="historyList">
-            <!-- Dynamically populated audio items -->
-          </div>
+          <div class="history-list" id="historyList"></div>
         </div>
       </section>
     </main>

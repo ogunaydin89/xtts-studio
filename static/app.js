@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnSynthesize = document.getElementById("btnSynthesize");
   const btnSynthesizeText = document.getElementById("btnSynthesizeText");
   const btnOpenFolder = document.getElementById("btnOpenFolder");
+  const btnQuit = document.getElementById("btnQuit");
 
   const audioElement = document.getElementById("audioElement");
   const btnPlayPause = document.getElementById("btnPlayPause");
@@ -31,13 +32,19 @@ document.addEventListener("DOMContentLoaded", () => {
   let isPlaying = false;
   let currentAudioUrl = null;
 
-  // Format Seconds to MM:SS
   function formatTime(seconds) {
     if (isNaN(seconds) || seconds < 0) return "0:00";
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   }
+
+  // Heartbeat loop - informs backend server that UI is active
+  function sendHeartbeat() {
+    fetch("/api/heartbeat", { method: "POST" }).catch(() => {});
+  }
+  sendHeartbeat();
+  setInterval(sendHeartbeat, 3000);
 
   // Check Engine Status
   async function checkStatus() {
@@ -61,7 +68,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   checkStatus();
 
-  // Load Voices List
   async function loadVoices() {
     try {
       const resp = await fetch("/api/voices");
@@ -83,7 +89,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   loadVoices();
 
-  // Load Audio History
   async function loadHistory() {
     try {
       const resp = await fetch("/api/history");
@@ -92,7 +97,7 @@ document.addEventListener("DOMContentLoaded", () => {
       historyCount.textContent = `${data.count} recordings`;
 
       if (data.audios && data.audios.length > 0) {
-        data.audios.forEach((audio, idx) => {
+        data.audios.forEach((audio) => {
           const item = document.createElement("div");
           item.className = "history-item" + (currentAudioUrl === audio.url ? " active" : "");
           
@@ -126,7 +131,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   loadHistory();
 
-  // Audition Reference Sample
   btnPreviewVoice.addEventListener("click", () => {
     const selectedVoice = voiceSelect.value;
     if (selectedVoice) {
@@ -135,7 +139,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Play Track Function
   function playTrack(url, title, meta) {
     currentAudioUrl = url;
     trackTitle.textContent = title;
@@ -170,7 +173,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Audio Events
   btnPlayPause.addEventListener("click", () => {
     if (audioElement.paused) {
       audioElement.play();
@@ -201,7 +203,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Shorts Pacing Meter Calculator
   function updateScriptMeter() {
     const text = scriptText.value.trim();
     const words = text ? text.split(/\s+/).filter(Boolean).length : 0;
@@ -234,7 +235,6 @@ document.addEventListener("DOMContentLoaded", () => {
     scriptText.focus();
   });
 
-  // Custom Voice Upload
   dropZone.addEventListener("click", () => voiceUploadInput.click());
   voiceUploadInput.addEventListener("change", async () => {
     if (voiceUploadInput.files && voiceUploadInput.files[0]) {
@@ -281,7 +281,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Synthesize Action
   btnSynthesize.addEventListener("click", async () => {
     const text = scriptText.value.trim();
     if (!text) {
@@ -295,8 +294,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const payload = {
       text: text,
       voice: voiceSelect.value,
-      language: languageSelect.value,
-      speed: 1.0
+      language: languageSelect.value
     };
 
     try {
@@ -321,10 +319,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Open Folder
   btnOpenFolder.addEventListener("click", async () => {
-    try {
-      await fetch("/api/open_folder", { method: "POST" });
-    } catch (e) {}
+    try { await fetch("/api/open_folder", { method: "POST" }); } catch (e) {}
+  });
+
+  btnQuit.addEventListener("click", async () => {
+    if (confirm("Close XTTS Studio and shut down server?")) {
+      try { await fetch("/api/shutdown", { method: "POST" }); } catch (e) {}
+      setTimeout(() => { window.close(); }, 500);
+    }
+  });
+
+  window.addEventListener("beforeunload", () => {
+    navigator.sendBeacon("/api/shutdown");
   });
 });

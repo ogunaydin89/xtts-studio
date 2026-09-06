@@ -2,6 +2,7 @@
 """
 XTTS Studio - Desktop Voice Synthesis & Cloning Studio
 Lightweight Python server managing isolated Coqui XTTS v2 generation on CPU.
+Includes auto-shutdown watchdog on window close.
 """
 
 import http.server
@@ -23,13 +24,29 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 VOICES_DIR = os.path.join(BASE_DIR, "voices")
 OUTPUT_DIR = os.path.expanduser("~/Music/AI_Voice")
 
-# Default XTTS environment path
 DEFAULT_VENV = os.path.expanduser("~/Local Ai Production/venv-xtts")
 VENV_DIR = os.environ.get("XTTS_VENV", DEFAULT_VENV)
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(VOICES_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
+
+last_heartbeat = time.time()
+has_received_heartbeat = False
+server_instance = None
+
+def watchdog_loop():
+    """Auto-shuts down if UI window is closed (no heartbeat for 10s)."""
+    global last_heartbeat, has_received_heartbeat, server_instance
+    while True:
+        time.sleep(2)
+        if has_received_heartbeat:
+            elapsed = time.time() - last_heartbeat
+            if elapsed > 10:
+                print(f"⚠️ XTTS Studio closed (inactive for {elapsed:.1f}s). Shutting down...")
+                if server_instance:
+                    threading.Thread(target=server_instance.shutdown).start()
+                os._exit(0)
 
 class XTTSHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -64,14 +81,31 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        if path == "/api/synthesize":
+        if path == "/api/heartbeat":
+            self.handle_heartbeat()
+        elif path == "/api/synthesize":
             self.handle_api_synthesize()
         elif path == "/api/upload_voice":
             self.handle_upload_voice()
         elif path == "/api/open_folder":
             self.handle_open_folder()
+        elif path == "/api/shutdown":
+            self.handle_shutdown()
         else:
             self.send_error(404, "Not Found")
+
+    def handle_heartbeat(self):
+        global last_heartbeat, has_received_heartbeat
+        last_heartbeat = time.time()
+        has_received_heartbeat = True
+        self.send_json({"ok": True})
+
+    def handle_shutdown(self):
+        self.send_json({"success": True, "message": "Exiting XTTS Studio..."})
+        def perform_exit():
+            time.sleep(0.5)
+            os._exit(0)
+        threading.Thread(target=perform_exit).start()
 
     def serve_file(self, filepath, content_type=None):
         if not os.path.isfile(filepath):
@@ -88,7 +122,6 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
 
         try:
             if range_header and range_header.startswith("bytes="):
-                # Basic range support for audio seeking
                 ranges = range_header.replace("bytes=", "").split("-")
                 start = int(ranges[0]) if ranges[0] else 0
                 end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
@@ -136,28 +169,13 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
     def handle_api_status(self):
         tts_bin = os.path.join(VENV_DIR, "bin", "tts")
         is_ready = os.path.isfile(tts_bin) and os.access(tts_bin, os.X_OK)
-
         voices = [f for f in os.listdir(VOICES_DIR) if f.lower().endswith((".wav", ".mp3", ".flac"))]
-        
-        # Get system RAM info
-        ram_info = {"total_gb": 16, "free_gb": 8}
-        try:
-            with open("/proc/meminfo", "r") as f:
-                lines = f.readlines()
-            for line in lines:
-                if line.startswith("MemTotal:"):
-                    ram_info["total_gb"] = round(int(line.split()[1]) / (1024 * 1024), 1)
-                elif line.startswith("MemAvailable:"):
-                    ram_info["free_gb"] = round(int(line.split()[1]) / (1024 * 1024), 1)
-        except Exception:
-            pass
 
         self.send_json({
             "ready": is_ready,
             "engine": "Coqui XTTS v2 (CPU Isolated)",
             "venv_path": VENV_DIR,
             "voices_count": len(voices),
-            "ram": ram_info,
             "output_dir": OUTPUT_DIR
         })
 
@@ -201,7 +219,6 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": "Invalid Content-Type"}, status_code=400)
             return
 
-        # Simple multipart reader for wav file
         try:
             boundary = content_type.split("boundary=")[1].encode()
             length = int(self.headers.get("Content-Length", 0))
@@ -219,7 +236,6 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
                         if "filename=" in h_line:
                             filename = h_line.split('filename="')[1].split('"')[0]
                     
-                    # Sanitize filename
                     safe_name = os.path.basename(filename).replace(" ", "_")
                     if not safe_name.lower().endswith(".wav"):
                         safe_name += ".wav"
@@ -240,21 +256,13 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
         text = payload.get("text", "").strip()
         voice_file = payload.get("voice", "narrator_default.wav")
         lang = payload.get("language", "en")
-        speed = float(payload.get("speed", 1.0))
 
         if not text:
             self.send_json({"error": "Text is required"}, status_code=400)
             return
 
         tts_bin = os.path.join(VENV_DIR, "bin", "tts")
-        if not os.path.isfile(tts_bin):
-            self.send_json({"error": f"TTS binary not found at {tts_bin}"}, status_code=500)
-            return
-
         speaker_path = os.path.join(VOICES_DIR, voice_file)
-        if not os.path.isfile(speaker_path):
-            self.send_json({"error": f"Voice reference not found: {voice_file}"}, status_code=404)
-            return
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         out_filename = f"Voice_{timestamp}_{lang}.wav"
@@ -280,7 +288,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             proc = subprocess.run(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
             if proc.returncode != 0:
                 self.send_json({
-                    "error": f"Synthesis failed (code {proc.returncode}): {proc.stderr[:400]}",
+                    "error": f"Synthesis failed: {proc.stderr[:400]}",
                     "success": False
                 }, status_code=500)
                 return
@@ -296,8 +304,6 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
                 "elapsed": elapsed,
                 "size": file_size
             })
-        except subprocess.TimeoutExpired:
-            self.send_json({"error": "Synthesis timed out after 120 seconds", "success": False}, status_code=504)
         except Exception as e:
             self.send_json({"error": str(e), "success": False}, status_code=500)
 
@@ -306,19 +312,24 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 def run():
+    global server_instance
     server_address = ("127.0.0.1", PORT)
-    httpd = ThreadedHTTPServer(server_address, XTTSHandler)
+    server_instance = ThreadedHTTPServer(server_address, XTTSHandler)
+
+    wd = threading.Thread(target=watchdog_loop, daemon=True)
+    wd.start()
+
     print(f"==================================================")
     print(f"  🎙️ XTTS Studio running at http://127.0.0.1:{PORT}")
     print(f"  📁 Voices Directory: {VOICES_DIR}")
     print(f"  🔊 Output Directory: {OUTPUT_DIR}")
-    print(f"  🐍 XTTS Virtualenv:  {VENV_DIR}")
+    print(f"  🛡️ Auto-offload:    Enabled on window/app close")
     print(f"==================================================")
     try:
-        httpd.serve_forever()
+        server_instance.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping XTTS Studio...")
-        httpd.shutdown()
+        server_instance.shutdown()
 
 if __name__ == "__main__":
     run()
