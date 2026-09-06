@@ -32,12 +32,16 @@ else
     SERVER_PID=""
 fi
 
-# 2. Open UI in standalone dedicated window (blocks until closed)
+# 2. Open UI in isolated native Qt6 window (or fallback to Chrome/browser)
 URL="http://127.0.0.1:${PORT}"
-mkdir -p "$CHROME_PROFILE"
+WINDOW_RUNNER="$SCRIPT_DIR/window.py"
 
-if [ -x "/opt/google/chrome/google-chrome" ]; then
+if [ -f "$WINDOW_RUNNER" ] && [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+    echo "🖥️ Running XTTS Studio in native isolated Qt6 window..."
+    "$SCRIPT_DIR/.venv/bin/python" "$WINDOW_RUNNER" "$URL" "XTTS Studio" "$SCRIPT_DIR/icon.svg"
+elif [ -x "/opt/google/chrome/google-chrome" ]; then
     echo "🖥️ Running XTTS Studio (closing window will shut down server)..."
+    mkdir -p "$CHROME_PROFILE"
     /opt/google/chrome/google-chrome \
         --user-data-dir="$CHROME_PROFILE" \
         --app="$URL" \
