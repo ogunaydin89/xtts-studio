@@ -30,7 +30,12 @@ if ! curl -s "http://127.0.0.1:${PORT}/api/status" >/dev/null 2>&1; then
         python3 "$SCRIPT_DIR/app.py" &
     fi
     SERVER_PID=$!
-    sleep 0.8
+    for i in $(seq 1 30); do
+        if curl -s "http://127.0.0.1:${PORT}/api/status" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.1
+    done
 else
     SERVER_PID=""
 fi

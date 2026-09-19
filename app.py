@@ -30,13 +30,9 @@ DEFAULT_VENV = os.path.join(BASE_DIR, ".venv")
 VENV_DIR = os.environ.get("XTTS_VENV", DEFAULT_VENV)
 
 # Self-bootstrap into virtualenv if executed directly with system python
-if "TTS" not in sys.modules:
-    try:
-        import TTS
-    except ImportError:
-        venv_python = os.path.join(VENV_DIR, "bin", "python")
-        if os.path.isfile(venv_python) and sys.executable != venv_python:
-            os.execv(venv_python, [venv_python] + sys.argv)
+venv_python = os.path.join(VENV_DIR, "bin", "python")
+if os.path.isfile(venv_python) and os.path.realpath(sys.executable) != os.path.realpath(venv_python):
+    os.execv(venv_python, [venv_python] + sys.argv)
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(VOICES_DIR, exist_ok=True)
