@@ -24,8 +24,11 @@ trap cleanup EXIT INT TERM
 
 # 1. Check if XTTS Studio server is running
 if ! curl -s "http://127.0.0.1:${PORT}/api/status" >/dev/null 2>&1; then
-    echo "🚀 Launching XTTS Studio server on http://127.0.0.1:${PORT}..."
-    python3 "$SCRIPT_DIR/app.py" &
+    if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+        "$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/app.py" &
+    else
+        python3 "$SCRIPT_DIR/app.py" &
+    fi
     SERVER_PID=$!
     sleep 0.8
 else

@@ -51,14 +51,23 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const resp = await fetch("/api/status");
       const data = await resp.json();
-      if (data.ready) {
+      if (data.ready && data.model_loaded) {
         engineStatus.classList.remove("offline");
         engineStatus.classList.add("online");
         engineStatus.querySelector(".status-text").textContent = "XTTS-v2 Ready";
+        btnSynthesize.disabled = false;
+        btnSynthesizeText.textContent = "Synthesize Voiceover";
+      } else if (data.ready && data.model_loading) {
+        engineStatus.classList.remove("online", "offline");
+        engineStatus.querySelector(".status-text").textContent = "Warming Engine...";
+        btnSynthesize.disabled = true;
+        btnSynthesizeText.textContent = "Warming Engine in RAM...";
+        setTimeout(checkStatus, 1500);
       } else {
         engineStatus.classList.remove("online");
         engineStatus.classList.add("offline");
-        engineStatus.querySelector(".status-text").textContent = "Venv Offline";
+        engineStatus.querySelector(".status-text").textContent = data.model_error ? "Engine Error" : "Venv Offline";
+        btnSynthesize.disabled = true;
       }
     } catch (e) {
       engineStatus.classList.remove("online");
