@@ -23,6 +23,21 @@ XTTS Studio gives you instantaneous voice synthesis and reference-cloning capabi
 
 ---
 
+## 📦 Requirements
+
+| Layer | Needs |
+| :--- | :--- |
+| Server (`app.py`) | Python 3.9+ standard library only — nothing to install |
+| Native window (`window.py`) | `PyQt6`, `PyQt6-WebEngine` (listed in `requirements.txt`) |
+| Synthesis engine | `coqui-tts` (the maintained Idiap fork, **not** the original `TTS`, which stopped at 0.22.0), pinned exactly in `xtts_requirements_freeze.txt` |
+
+`run.sh` prefers the native window and falls back to Chrome app-mode, then to
+`xdg-open`, so a venv without the two Qt packages still runs — just not as the
+standalone desktop app. The XTTS-v2 weights themselves are downloaded once by
+`coqui-tts` into `~/.local/share/tts/` and are not part of this repository.
+
+---
+
 ## 🚀 Quick Start
 
 ### 1. Launch Studio

@@ -1,4 +1,17 @@
 # XTTS Studio UI & Server
-# The Studio interface itself is dependency-free and uses standard library Python 3.9+.
-# For the underlying Coqui XTTS synthesis engine, install into an isolated virtual environment:
-# pip install TTS==0.22.0
+#
+# The server layer (app.py) is dependency-free: standard library Python 3.9+
+# only, so `python3 app.py` works against a bare interpreter.
+#
+# The native desktop window (window.py) is what run.sh prefers, and it needs
+# Qt. Without these, run.sh silently falls back to Chrome app-mode -- the
+# dependency the native window exists to remove -- so they are listed here
+# rather than left implicit.
+PyQt6>=6.6
+PyQt6-WebEngine>=6.6
+#
+# The synthesis engine. This is coqui-tts, the maintained Idiap fork, NOT the
+# original `TTS` package: that one stopped at 0.22.0 and installing it produces
+# an environment this Studio was never tested against. The exact working set,
+# including the PyTorch build, is pinned in xtts_requirements_freeze.txt.
+coqui-tts>=0.27.5
