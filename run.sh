@@ -46,7 +46,7 @@ WINDOW_RUNNER="$SCRIPT_DIR/window.py"
 
 if [ -f "$WINDOW_RUNNER" ] && [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
     echo "🖥️ Running XTTS Studio in native isolated Qt6 window..."
-    "$SCRIPT_DIR/.venv/bin/python" "$WINDOW_RUNNER" "$URL" "XTTS Studio" "$SCRIPT_DIR/icon.svg"
+    "$SCRIPT_DIR/.venv/bin/python" "$WINDOW_RUNNER" "$URL" "XTTS Studio" "$SCRIPT_DIR/static/icon.svg"
 elif [ -x "/opt/google/chrome/google-chrome" ]; then
     echo "🖥️ Running XTTS Studio (closing window will shut down server)..."
     mkdir -p "$CHROME_PROFILE"

@@ -80,10 +80,15 @@ class StudioWindow(QMainWindow):
 def main():
     url = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:5222"
     title = sys.argv[2] if len(sys.argv) > 2 else "XTTS Studio"
-    icon = sys.argv[3] if len(sys.argv) > 3 else os.path.join(os.path.dirname(__file__), "icon.svg")
+    icon = sys.argv[3] if len(sys.argv) > 3 else os.path.join(
+        os.path.dirname(__file__), "static", "icon.svg")
 
     app = QApplication(sys.argv)
     app.setApplicationName(title)
+    # Wayland takes the xdg-shell app_id from the desktop file name; without
+    # this Qt falls back to the interpreter basename ("python") and the window
+    # never matches xtts-studio.desktop, so the taskbar shows a generic icon.
+    app.setDesktopFileName("xtts-studio")
     if os.path.isfile(icon):
         app.setWindowIcon(QIcon(icon))
 

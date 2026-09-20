@@ -6,4 +6,4 @@ Icon=/home/helin/Code/xtts-studio/static/icon.svg
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Recorder;
-StartupWMClass=127.0.0.1__5222
+StartupWMClass=xtts-studio
