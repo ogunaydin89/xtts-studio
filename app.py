@@ -95,6 +95,38 @@ tts_lock = threading.Lock()
 tts_loading = False
 tts_load_error = None
 
+def force_soundfile_audio_backend():
+    """Stops torchaudio from dispatching audio loads through libsox.
+
+    coqui-tts loads the reference voice with a bare torchaudio.load() call
+    (TTS/tts/models/xtts.py), and torchaudio's dispatcher prefers its sox
+    backend over soundfile. That backend links the system libsox.so, which on
+    this machine points at libsox_ng -- the sox-ng fork, a different ABI -- so
+    the call dies with SIGSEGV. Being a signal rather than an exception, it
+    takes the whole Studio process down with it: no traceback, no error in the
+    UI, just a dead server the moment a reference voice is used. The soundfile
+    backend reads the same files correctly, so pin every load to it.
+    """
+    try:
+        import torchaudio
+    except Exception:
+        return
+    if getattr(torchaudio.load, "_soundfile_pinned", False):
+        return
+    if "soundfile" not in torchaudio.list_audio_backends():
+        print("⚠️ torchaudio has no soundfile backend; reference-voice cloning "
+              "may crash if its sox backend is used.")
+        return
+    original_load = torchaudio.load
+
+    def load_via_soundfile(*args, **kwargs):
+        kwargs.setdefault("backend", "soundfile")
+        return original_load(*args, **kwargs)
+
+    load_via_soundfile._soundfile_pinned = True
+    torchaudio.load = load_via_soundfile
+
+
 def warm_tts_engine():
     """Asynchronously loads XTTS-v2 into RAM on CPU once at startup."""
     global tts_engine, tts_loading, tts_load_error
@@ -107,6 +139,7 @@ def warm_tts_engine():
         os.environ["ROCR_VISIBLE_DEVICES"] = ""
         os.environ["HIP_VISIBLE_DEVICES"] = ""
         os.environ["COQUI_TOS_AGREED"] = "1"
+        force_soundfile_audio_backend()
         from TTS.api import TTS
         engine = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cpu")
         with tts_lock:

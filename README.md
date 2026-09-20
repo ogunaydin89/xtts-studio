@@ -30,6 +30,7 @@ XTTS Studio gives you instantaneous voice synthesis and reference-cloning capabi
 | Server (`app.py`) | Python 3.9+ standard library only — nothing to install |
 | Native window (`window.py`) | `PyQt6`, `PyQt6-WebEngine` (listed in `requirements.txt`) |
 | Synthesis engine | `coqui-tts` (the maintained Idiap fork, **not** the original `TTS`, which stopped at 0.22.0), pinned exactly in `xtts_requirements_freeze.txt` |
+| PyTorch | The **CPU** build (`torch==2.7.1+cpu`). Every GPU is masked at startup, so the ROCm build is ~17GB of libraries that never load — installing it from `https://download.pytorch.org/whl/cpu` keeps the venv near 2GB |
 
 `run.sh` prefers the native window and falls back to Chrome app-mode, then to
 `xdg-open`, so a venv without the two Qt packages still runs — just not as the
@@ -61,6 +62,22 @@ Then navigate to `http://127.0.0.1:5222`.
 | `XTTS_VENV` | `./.venv` | Virtualenv containing `TTS` and PyQt6. `app.py` re-execs itself into it automatically if started with the system Python. |
 | Output Directory | `~/Music/AI_Voice/` | Destination for synthesized WAV recordings |
 | Reference Voices | `./voices/` | Storage for reference speaker audio samples |
+
+---
+
+## ⚠️ torchaudio, libsox and sox-ng
+
+`coqui-tts` loads the reference voice with a bare `torchaudio.load()` call, and
+torchaudio's dispatcher prefers its **sox** backend over soundfile. That backend
+links the system `libsox.so`, which on a current Gentoo is a symlink to
+`libsox_ng.so` — the sox-ng fork, a different ABI. Calling into it does not
+raise: it dies with `SIGSEGV`, which takes the entire Studio process down the
+moment a reference voice is used, with no traceback and no error in the UI.
+
+`force_soundfile_audio_backend()` in `app.py` pins every load to the soundfile
+backend, which reads the same files correctly. Do not remove it while
+`/usr/lib64/libsox.so` still points at sox-ng, and note that the crash is a
+property of the *system* library, so it is not fixed by changing PyTorch builds.
 
 ---
 

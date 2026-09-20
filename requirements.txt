@@ -12,6 +12,17 @@ PyQt6-WebEngine>=6.6
 #
 # The synthesis engine. This is coqui-tts, the maintained Idiap fork, NOT the
 # original `TTS` package: that one stopped at 0.22.0 and installing it produces
-# an environment this Studio was never tested against. The exact working set,
-# including the PyTorch build, is pinned in xtts_requirements_freeze.txt.
+# an environment this Studio was never tested against.
 coqui-tts>=0.27.5
+#
+# PyTorch must be the CPU build. This Studio masks every GPU (see
+# warm_tts_engine) so the discrete card stays free for diffusion work, which
+# makes the ROCm build ~17GB of libraries that are never loaded. Install it
+# from the CPU index *before* coqui-tts, or coqui-tts will pull the default
+# GPU wheels:
+#
+#   pip install --index-url https://download.pytorch.org/whl/cpu \
+#       torch==2.7.1 torchaudio==2.7.1
+#
+# Exact working versions for the whole venv are in
+# xtts_requirements_freeze.txt.
