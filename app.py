@@ -39,6 +39,29 @@ os.makedirs(VOICES_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 
 VOICE_FILE_EXTENSIONS = (".wav", ".mp3", ".flac")
+AUDIO_OUTPUT_EXTENSIONS = (".wav", ".mp3")
+MAX_UPLOAD_BYTES = 64 * 1024 * 1024
+
+# Only these Host values are answered. The server binds to loopback, but
+# without this check any external name that resolves to 127.0.0.1 (DNS
+# rebinding) is also a valid way to reach these endpoints.
+ALLOWED_HOSTS = frozenset({
+    f"127.0.0.1:{PORT}", f"localhost:{PORT}", f"[::1]:{PORT}",
+})
+
+
+def safe_join(base_dir, user_path):
+    """Resolves user_path inside base_dir, or returns None if it escapes.
+
+    Both path segments and percent-encoded traversal ("%2e%2e%2f") reach here
+    from the URL, so joining them onto the base directory unchecked exposes
+    every file the user can read.
+    """
+    base_real = os.path.realpath(base_dir)
+    target = os.path.realpath(os.path.join(base_real, user_path.lstrip("/")))
+    if target != base_real and not target.startswith(base_real + os.sep):
+        return None
+    return target
 
 # XTTS-v2's 58 built-in pretrained speakers (from speakers_xtts.pth, bundled
 # with the model). Selectable via --speaker_idx instead of --speaker_wav,
@@ -113,33 +136,61 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
         sys.stdout.write(f"[{time.strftime('%H:%M:%S')}] {format % args}\n")
         sys.stdout.flush()
 
+    def request_is_local(self):
+        """Rejects foreign Host headers and cross-site requests.
+
+        Chromium (and therefore the Qt window) always sends Sec-Fetch-Site, so
+        a page on another origin cannot forge a same-origin value here. Without
+        this, any page in any local browser could POST to /api/shutdown.
+        """
+        if self.headers.get("Host", "") not in ALLOWED_HOSTS:
+            self.send_error(403, "Forbidden host")
+            return False
+        site = self.headers.get("Sec-Fetch-Site")
+        if site is not None and site not in ("same-origin", "none"):
+            self.send_error(403, "Cross-site request rejected")
+            return False
+        return True
+
     def do_GET(self):
+        if not self.request_is_local():
+            return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
         if path == "/" or path == "/index.html":
             self.serve_file(os.path.join(STATIC_DIR, "index.html"), "text/html")
         elif path.startswith("/static/"):
-            rel = path[8:]
-            self.serve_file(os.path.join(STATIC_DIR, rel))
+            self.serve_contained(STATIC_DIR, path[8:])
         elif path == "/api/status":
             self.handle_api_status()
         elif path == "/api/voices":
             self.handle_api_voices()
         elif path.startswith("/api/voice_preview/"):
-            fname = urllib.parse.unquote(path[19:])
-            self.serve_file(os.path.join(VOICES_DIR, fname), "audio/wav")
+            self.serve_contained(
+                VOICES_DIR, urllib.parse.unquote(path[19:]), "audio/wav")
         elif path.startswith("/api/audio/"):
-            fname = urllib.parse.unquote(path[11:])
-            self.serve_file(os.path.join(OUTPUT_DIR, fname), "audio/wav")
+            self.serve_contained(
+                OUTPUT_DIR, urllib.parse.unquote(path[11:]), "audio/wav")
         elif path == "/api/history":
             self.handle_api_history()
         else:
             self.send_error(404, "Not Found")
 
     def do_POST(self):
+        if not self.request_is_local():
+            return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
+        # An application/json body cannot be sent cross-origin without a CORS
+        # preflight, and this server answers none. The upload is necessarily
+        # multipart, so it leans on the Sec-Fetch-Site check above instead.
+        if path != "/api/upload_voice":
+            ctype = self.headers.get("Content-Type", "")
+            if ctype.split(";")[0].strip().lower() != "application/json":
+                self.send_error(415, "Expected Content-Type: application/json")
+                return
 
         if path == "/api/heartbeat":
             self.handle_heartbeat()
@@ -167,6 +218,13 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             os._exit(0)
         threading.Thread(target=perform_exit).start()
 
+    def serve_contained(self, base_dir, relative_path, content_type=None):
+        target = safe_join(base_dir, relative_path)
+        if target is None:
+            self.send_error(403, "Forbidden path")
+            return
+        self.serve_file(target, content_type)
+
     def serve_file(self, filepath, content_type=None):
         if not os.path.isfile(filepath):
             self.send_error(404, f"File not found: {os.path.basename(filepath)}")
@@ -182,19 +240,36 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
 
         try:
             if range_header and range_header.startswith("bytes="):
-                ranges = range_header.replace("bytes=", "").split("-")
-                start = int(ranges[0]) if ranges[0] else 0
-                end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
-                length = end - start + 1
+                spec = range_header[len("bytes="):].split(",")[0].strip()
+                first, _, last = spec.partition("-")
+                if not first:
+                    # "bytes=-500" means the *last* 500 bytes, not 0-500.
+                    suffix = int(last) if last else 0
+                    if suffix <= 0:
+                        self.send_unsatisfiable_range(file_size)
+                        return
+                    start = max(0, file_size - suffix)
+                    end = file_size - 1
+                else:
+                    start = int(first)
+                    end = int(last) if last else file_size - 1
+                end = min(end, file_size - 1)
+                if start > end or start >= file_size:
+                    # Declaring a length we cannot deliver leaves the player
+                    # waiting on bytes that never arrive.
+                    self.send_unsatisfiable_range(file_size)
+                    return
 
                 with open(filepath, "rb") as f:
                     f.seek(start)
-                    chunk = f.read(length)
+                    chunk = f.read(end - start + 1)
 
                 self.send_response(206)
                 self.send_header("Content-Type", content_type)
-                self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
-                self.send_header("Content-Length", str(length))
+                self.send_header(
+                    "Content-Range",
+                    f"bytes {start}-{start + len(chunk) - 1}/{file_size}")
+                self.send_header("Content-Length", str(len(chunk)))
                 self.send_header("Accept-Ranges", "bytes")
                 self.end_headers()
                 self.wfile.write(chunk)
@@ -210,12 +285,17 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_error(500, f"Error streaming file: {e}")
 
+    def send_unsatisfiable_range(self, file_size):
+        self.send_response(416)
+        self.send_header("Content-Range", f"bytes */{file_size}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def send_json(self, data, status_code=200):
         body = json.dumps(data).encode("utf-8")
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
 
@@ -229,7 +309,8 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
     def handle_api_status(self):
         tts_bin = os.path.join(VENV_DIR, "bin", "python")
         is_ready = os.path.isfile(tts_bin) and os.access(tts_bin, os.X_OK)
-        voices = [f for f in os.listdir(VOICES_DIR) if f.lower().endswith((".wav", ".mp3", ".flac"))]
+        voices = [f for f in os.listdir(VOICES_DIR)
+                  if f.lower().endswith(VOICE_FILE_EXTENSIONS)]
 
         self.send_json({
             "ready": is_ready,
@@ -245,7 +326,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
     def handle_api_voices(self):
         voice_files = []
         for entry in os.scandir(VOICES_DIR):
-            if entry.is_file() and entry.name.lower().endswith((".wav", ".mp3", ".flac")):
+            if entry.is_file() and entry.name.lower().endswith(VOICE_FILE_EXTENSIONS):
                 stat = entry.stat()
                 voice_files.append({
                     "name": entry.name,
@@ -258,7 +339,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
     def handle_api_history(self):
         audios = []
         for entry in os.scandir(OUTPUT_DIR):
-            if entry.is_file() and entry.name.lower().endswith((".wav", ".mp3")):
+            if entry.is_file() and entry.name.lower().endswith(AUDIO_OUTPUT_EXTENSIONS):
                 stat = entry.stat()
                 audios.append({
                     "name": entry.name,
@@ -282,8 +363,19 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": "Invalid Content-Type"}, status_code=400)
             return
 
+        length = int(self.headers.get("Content-Length", 0))
+        if length <= 0:
+            self.send_json({"error": "Empty upload"}, status_code=400)
+            return
+        if length > MAX_UPLOAD_BYTES:
+            # The whole body is parsed in memory, so an unbounded upload is a
+            # way to exhaust RAM on this machine.
+            self.send_json(
+                {"error": f"Upload exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit"},
+                status_code=413)
+            return
+
         try:
-            length = int(self.headers.get("Content-Length", 0))
             raw_data = self.rfile.read(length)
             msg = BytesParser(policy=default).parsebytes(
                 f"Content-Type: {content_type}\r\n\r\n".encode("utf-8") + raw_data
@@ -292,13 +384,24 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
                 filename = part.get_filename()
                 if filename:
                     safe_name = os.path.basename(filename).replace(" ", "_")
-                    if not safe_name.lower().endswith(".wav"):
-                        safe_name += ".wav"
-                    dest_path = os.path.join(VOICES_DIR, safe_name)
+                    ext = os.path.splitext(safe_name)[1].lower()
+                    if ext not in VOICE_FILE_EXTENSIONS:
+                        # Renaming an MP3 to .wav used to hide the real format
+                        # until XTTS failed to decode it, with no useful error.
+                        self.send_json(
+                            {"error": "Unsupported audio format: "
+                                      f"{ext or 'no extension'}. "
+                                      f"Use {', '.join(VOICE_FILE_EXTENSIONS)}."},
+                            status_code=415)
+                        return
+                    dest_path = safe_join(VOICES_DIR, safe_name)
+                    if dest_path is None:
+                        self.send_json({"error": "Invalid filename"}, status_code=400)
+                        return
                     file_bytes = part.get_payload(decode=True)
                     with open(dest_path, "wb") as f:
                         f.write(file_bytes)
-                    self.send_json({"success": True, "name": safe_name})
+                    self.send_json({"success": True, "name": os.path.basename(dest_path)})
                     return
 
             self.send_json({"error": "No file content found in upload"}, status_code=400)
@@ -328,11 +431,18 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"error": err, "success": False}, status_code=503)
                 return
 
-        is_builtin = voice_file in BUILTIN_SPEAKERS or not voice_file.lower().endswith(VOICE_FILE_EXTENSIONS)
+        is_builtin = voice_file in BUILTIN_SPEAKERS
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         out_filename = f"Voice_{timestamp}_{lang}.wav"
         out_path = os.path.join(OUTPUT_DIR, out_filename)
+        # Two syntheses inside the same second would otherwise overwrite one
+        # another, and the second one's history entry would point at the first.
+        suffix = 1
+        while os.path.exists(out_path):
+            out_filename = f"Voice_{timestamp}_{lang}_{suffix}.wav"
+            out_path = os.path.join(OUTPUT_DIR, out_filename)
+            suffix += 1
 
         t0 = time.time()
         try:
@@ -345,8 +455,8 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
                         file_path=out_path
                     )
                 else:
-                    speaker_path = os.path.join(VOICES_DIR, voice_file)
-                    if not os.path.isfile(speaker_path):
+                    speaker_path = safe_join(VOICES_DIR, voice_file)
+                    if speaker_path is None or not os.path.isfile(speaker_path):
                         self.send_json({"error": f"Voice reference file not found: {voice_file}", "success": False}, status_code=404)
                         return
                     tts_engine.tts_to_file(

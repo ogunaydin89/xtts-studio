@@ -29,6 +29,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const historyList = document.getElementById("historyList");
   const historyCount = document.getElementById("historyCount");
 
+  const JSON_POST = {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  };
+
   let isPlaying = false;
   let currentAudioUrl = null;
 
@@ -41,12 +47,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Heartbeat loop - informs backend server that UI is active
   function sendHeartbeat() {
-    fetch("/api/heartbeat", { method: "POST" }).catch(() => {});
+    fetch("/api/heartbeat", JSON_POST).catch(() => {});
   }
   sendHeartbeat();
   setInterval(sendHeartbeat, 3000);
 
-  // Check Engine Status
+  // Check Engine Status. This must keep polling: the warm-up thread sets its
+  // "loading" flag a moment after the server starts listening, so a probe that
+  // lands in that window (or any probe after a load failure) reports neither
+  // loaded nor loading, and the UI would sit there with synthesis disabled.
   async function checkStatus() {
     try {
       const resp = await fetch("/api/status");
@@ -62,7 +71,6 @@ document.addEventListener("DOMContentLoaded", () => {
         engineStatus.querySelector(".status-text").textContent = "Warming Engine...";
         btnSynthesize.disabled = true;
         btnSynthesizeText.textContent = "Warming Engine in RAM...";
-        setTimeout(checkStatus, 1500);
       } else {
         engineStatus.classList.remove("online");
         engineStatus.classList.add("offline");
@@ -76,6 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
   checkStatus();
+  setInterval(checkStatus, 4000);
 
   async function loadVoices() {
     try {
@@ -152,12 +161,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 </svg>
               </span>
               <div class="item-info">
-                <span class="item-name">${audio.name}</span>
-                <span class="item-date">${dateStr} • ${sizeKb} KB</span>
+                <span class="item-name"></span>
+                <span class="item-date"></span>
               </div>
             </div>
             <span class="item-size">▶ Play</span>
           `;
+          // textContent, not interpolation: the name comes off the filesystem.
+          item.querySelector(".item-name").textContent = audio.name;
+          item.querySelector(".item-date").textContent = `${dateStr} • ${sizeKb} KB`;
 
           item.addEventListener("click", () => {
             playTrack(audio.url, audio.name, `Saved file • ${sizeKb} KB`);
@@ -359,17 +371,17 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   btnOpenFolder.addEventListener("click", async () => {
-    try { await fetch("/api/open_folder", { method: "POST" }); } catch (e) {}
+    try { await fetch("/api/open_folder", JSON_POST); } catch (e) {}
   });
 
   btnQuit.addEventListener("click", async () => {
     if (confirm("Close XTTS Studio and shut down server?")) {
-      try { await fetch("/api/shutdown", { method: "POST" }); } catch (e) {}
+      try { await fetch("/api/shutdown", JSON_POST); } catch (e) {}
       setTimeout(() => { window.close(); }, 500);
     }
   });
 
-  window.addEventListener("beforeunload", () => {
-    navigator.sendBeacon("/api/shutdown");
-  });
+  // No shutdown beacon on unload: it made an ordinary page reload (Ctrl+R)
+  // kill the resident engine. The Qt window posts /api/shutdown from its
+  // closeEvent, and the 10s heartbeat watchdog covers the browser fallback.
 });
