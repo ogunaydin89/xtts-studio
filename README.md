@@ -17,7 +17,10 @@ XTTS Studio gives you instantaneous voice synthesis and reference-cloning capabi
   - Real-time word and character counter.
   - Speech duration calculator calibrated for 9–10s delivery.
   - Visual status badge highlighting the optimal **16–18 word window** for single-pass YouTube Shorts and Reels.
-- **🌍 Multilingual Speech**: English, Turkish, German, Spanish, French, Italian, Japanese, Portuguese, Polish, Russian, and Arabic.
+- **🌍 Multilingual Speech**: all 17 languages XTTS-v2 declares in its own
+  `config.json` — English, Turkish, German, Spanish, French, Italian, Japanese,
+  Portuguese, Polish, Russian, Arabic, Chinese, Dutch, Czech, Hungarian, Korean
+  and Hindi.
 - **🛡️ Hardware Isolation**: Runs strictly on the CPU (e.g. 16-thread Ryzen 7) with discrete GPU/VRAM masking (`CUDA_VISIBLE_DEVICES=""`), keeping 100% of GPU resources free for concurrent image/diffusion workloads.
 - **🎧 Built-in Audio Player & History**: Audition voice clips immediately with seek-bar scrubbing (backed by HTTP range requests), and open the output folder directly in Dolphin. Every synthesis is already written to `~/Music/AI_Voice`, so the native window suppresses the redundant in-page download.
 
