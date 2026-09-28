@@ -5,5 +5,5 @@ __pycache__/
 *.log
 .env
 
-# Local Runtime Virtualenv & Audio Cache (Excluded from Codeberg)
+# Local Runtime Virtualenv & Audio Cache (Excluded from Git)
 .venv/
