@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT=5222
-CHROME_PROFILE="/home/helin/.cache/xtts-studio-chrome"
+CHROME_PROFILE="${HOME}/.cache/xtts-studio-chrome"
 
 echo "🎙️ Initializing XTTS Studio..."
 

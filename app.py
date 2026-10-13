@@ -201,7 +201,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_api_voices()
         elif path.startswith("/api/voice_preview/"):
             self.serve_contained(
-                VOICES_DIR, urllib.parse.unquote(path[19:]), "audio/wav")
+                VOICES_DIR, urllib.parse.unquote(path[19:]))
         elif path.startswith("/api/audio/"):
             self.serve_contained(
                 OUTPUT_DIR, urllib.parse.unquote(path[11:]), "audio/wav")
