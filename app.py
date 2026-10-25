@@ -445,7 +445,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
         global tts_engine, tts_loading, tts_load_error
         payload = self.read_json_body()
         text = payload.get("text", "").strip()
-        voice_file = payload.get("voice", "narrator_default.wav")
+        voice_file = payload.get("voice", "Vjollca Johnnie")
         lang = payload.get("language", "en")
 
         if not text:

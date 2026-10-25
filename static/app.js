@@ -105,7 +105,8 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
 
-      if (data.builtin_speakers && builtinGroup.childElementCount === 0) {
+      if (data.builtin_speakers && builtinGroup.childElementCount <= 1) {
+        builtinGroup.innerHTML = "";
         data.builtin_speakers.forEach(name => {
           const opt = document.createElement("option");
           opt.value = name;
