@@ -10,7 +10,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const wordCount = document.getElementById("wordCount");
   const charCount = document.getElementById("charCount");
   const estDuration = document.getElementById("estDuration");
-  const meterBadge = document.getElementById("meterBadge");
   const btnSynthesize = document.getElementById("btnSynthesize");
   const btnSynthesizeText = document.getElementById("btnSynthesizeText");
   const btnOpenFolder = document.getElementById("btnOpenFolder");
@@ -35,14 +34,16 @@ document.addEventListener("DOMContentLoaded", () => {
     body: "{}"
   };
 
-  let isPlaying = false;
+  let isSynthesizing = false;
+  let synthTimerInterval = null;
+  let synthStartTime = 0;
   let currentAudioUrl = null;
 
   function formatTime(seconds) {
     if (isNaN(seconds) || seconds < 0) return "0:00";
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
   }
 
   // Heartbeat loop - informs backend server that UI is active
@@ -52,14 +53,24 @@ document.addEventListener("DOMContentLoaded", () => {
   sendHeartbeat();
   setInterval(sendHeartbeat, 3000);
 
-  // Check Engine Status. This must keep polling: the warm-up thread sets its
-  // "loading" flag a moment after the server starts listening, so a probe that
-  // lands in that window (or any probe after a load failure) reports neither
-  // loaded nor loading, and the UI would sit there with synthesis disabled.
+  // Engine status poller. Respects active synthesis so it never resets the
+  // Synthesize button while a job is running.
   async function checkStatus() {
     try {
       const resp = await fetch("/api/status");
       const data = await resp.json();
+
+      if (isSynthesizing || data.synthesizing) {
+        engineStatus.classList.remove("offline");
+        engineStatus.classList.add("online");
+        const sec = isSynthesizing
+          ? ((performance.now() - synthStartTime) / 1000).toFixed(1)
+          : (data.synth_elapsed || 0).toFixed(1);
+        engineStatus.querySelector(".status-text").textContent = `Synthesizing (${sec}s)...`;
+        btnSynthesize.disabled = true;
+        return;
+      }
+
       if (data.ready && data.model_loaded) {
         engineStatus.classList.remove("offline");
         engineStatus.classList.add("online");
@@ -78,13 +89,15 @@ document.addEventListener("DOMContentLoaded", () => {
         btnSynthesize.disabled = true;
       }
     } catch (e) {
-      engineStatus.classList.remove("online");
-      engineStatus.classList.add("offline");
-      engineStatus.querySelector(".status-text").textContent = "Offline";
+      if (!isSynthesizing) {
+        engineStatus.classList.remove("online");
+        engineStatus.classList.add("offline");
+        engineStatus.querySelector(".status-text").textContent = "Offline";
+      }
     }
   }
   checkStatus();
-  setInterval(checkStatus, 4000);
+  setInterval(checkStatus, 3000);
 
   async function loadVoices() {
     try {
@@ -100,7 +113,9 @@ document.addEventListener("DOMContentLoaded", () => {
         data.voices.forEach(v => {
           const opt = document.createElement("option");
           opt.value = v.name;
-          opt.textContent = v.name.replace(".wav", "").replace(/_/g, " ");
+          opt.textContent = v.name
+            .replace(/\.(wav|mp3|flac)$/i, "")
+            .replace(/_/g, " ");
           myGroup.appendChild(opt);
         });
       }
@@ -118,8 +133,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const allValues = Array.from(voiceSelect.options).map(o => o.value);
       if (allValues.includes(cur)) {
         voiceSelect.value = cur;
+      } else if (allValues.includes("Vjollca Johnnie")) {
+        voiceSelect.value = "Vjollca Johnnie";
       }
-      updatePreviewAvailability();
+      updateVoiceSelectionState();
     } catch (e) {}
   }
   loadVoices();
@@ -129,28 +146,37 @@ document.addEventListener("DOMContentLoaded", () => {
       .querySelector(`option[value="${CSS.escape(value)}"]`) !== null;
   }
 
-  function updatePreviewAvailability() {
-    const builtin = isBuiltinVoice(voiceSelect.value);
+  function updateVoiceSelectionState() {
+    const val = voiceSelect.value;
+    const builtin = isBuiltinVoice(val);
     btnPreviewVoice.disabled = builtin;
     btnPreviewVoice.title = builtin
       ? "Built-in voices have no reference sample to preview — synthesize to hear them"
-      : "";
+      : "Listen to the reference voice recording";
+
+    // Auto-pair language when picking a language-tagged voice
+    const lower = val.toLowerCase();
+    if (lower.includes("_tr.") || lower.endsWith("_tr")) {
+      languageSelect.value = "tr";
+    } else if (lower.includes("_en.") || lower.endsWith("_en") || builtin) {
+      languageSelect.value = "en";
+    }
   }
-  voiceSelect.addEventListener("change", updatePreviewAvailability);
+  voiceSelect.addEventListener("change", updateVoiceSelectionState);
 
   async function loadHistory() {
     try {
       const resp = await fetch("/api/history");
       const data = await resp.json();
       historyList.innerHTML = "";
-      historyCount.textContent = `${data.count} recordings`;
+      historyCount.textContent = `${data.count} recording${data.count === 1 ? "" : "s"}`;
 
       if (data.audios && data.audios.length > 0) {
         data.audios.forEach((audio) => {
           const item = document.createElement("div");
           item.className = "history-item" + (currentAudioUrl === audio.url ? " active" : "");
-          
-          const dateStr = new Date(audio.mtime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+          const dateStr = new Date(audio.mtime * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
           const sizeKb = Math.round(audio.size / 1024);
 
           item.innerHTML = `
@@ -166,14 +192,35 @@ document.addEventListener("DOMContentLoaded", () => {
                 <span class="item-date"></span>
               </div>
             </div>
-            <span class="item-size">▶ Play</span>
+            <div class="item-actions">
+              <span class="item-size">▶ Play</span>
+              <button type="button" class="btn-trash-item" title="Move to Recycle Bin">✕</button>
+            </div>
           `;
-          // textContent, not interpolation: the name comes off the filesystem.
           item.querySelector(".item-name").textContent = audio.name;
           item.querySelector(".item-date").textContent = `${dateStr} • ${sizeKb} KB`;
 
-          item.addEventListener("click", () => {
+          item.addEventListener("click", (ev) => {
+            if (ev.target.closest(".btn-trash-item")) return;
             playTrack(audio.url, audio.name, `Saved file • ${sizeKb} KB`);
+            document.querySelectorAll(".history-item").forEach(el => el.classList.remove("active"));
+            item.classList.add("active");
+          });
+
+          const trashBtn = item.querySelector(".btn-trash-item");
+          trashBtn.addEventListener("click", async (ev) => {
+            ev.stopPropagation();
+            try {
+              const delResp = await fetch("/api/delete_audio", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: audio.name })
+              });
+              const delData = await delResp.json();
+              if (delData.success) {
+                loadHistory();
+              }
+            } catch (err) {}
           });
 
           historyList.appendChild(item);
@@ -185,7 +232,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   btnPreviewVoice.addEventListener("click", () => {
     const selectedVoice = voiceSelect.value;
-    if (selectedVoice) {
+    if (selectedVoice && !isBuiltinVoice(selectedVoice)) {
       const previewUrl = `/api/voice_preview/${encodeURIComponent(selectedVoice)}`;
       playTrack(previewUrl, `Speaker Reference: ${selectedVoice}`, "Reference Voice Sample");
     }
@@ -210,12 +257,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }).catch(() => {
       setPlayState(false);
     });
-
-    document.querySelectorAll(".history-item").forEach(el => el.classList.remove("active"));
   }
 
   function setPlayState(playing) {
-    isPlaying = playing;
     if (playing) {
       playIcon.classList.add("hidden");
       pauseIcon.classList.remove("hidden");
@@ -236,10 +280,16 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   audioElement.addEventListener("timeupdate", () => {
-    if (!isNaN(audioElement.duration)) {
+    if (!isNaN(audioElement.duration) && audioElement.duration > 0) {
       const pct = (audioElement.currentTime / audioElement.duration) * 100;
       audioScrubber.value = pct;
       timeCurrent.textContent = formatTime(audioElement.currentTime);
+      timeTotal.textContent = formatTime(audioElement.duration);
+    }
+  });
+
+  audioElement.addEventListener("loadedmetadata", () => {
+    if (!isNaN(audioElement.duration)) {
       timeTotal.textContent = formatTime(audioElement.duration);
     }
   });
@@ -255,35 +305,30 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  function updateScriptMeter() {
+  function updateScriptStats() {
     const text = scriptText.value.trim();
     const words = text ? text.split(/\s+/).filter(Boolean).length : 0;
     const chars = text.length;
-    const est = (words / 1.9).toFixed(1);
+    const est = (words / 2.3).toFixed(1);
 
-    wordCount.textContent = `${words} words`;
-    charCount.textContent = `${chars} chars`;
-    estDuration.textContent = `~${est}s est.`;
-
-    if (words === 0) {
-      meterBadge.className = "meter-badge";
-      meterBadge.textContent = "Shorts Meter";
-    } else if (words >= 16 && words <= 18) {
-      meterBadge.className = "meter-badge badge-perfect";
-      meterBadge.textContent = "✨ 16–18 Words (Perfect 10s Short!)";
-    } else if (words > 18) {
-      meterBadge.className = "meter-badge badge-warning";
-      meterBadge.textContent = `⚠️ ${words} Words (Exceeds 10s Limit)`;
-    } else {
-      meterBadge.className = "meter-badge";
-      meterBadge.textContent = `${16 - words} words to 16-word target`;
-    }
+    wordCount.textContent = `${words} word${words === 1 ? "" : "s"}`;
+    charCount.textContent = `${chars} char${chars === 1 ? "" : "s"}`;
+    estDuration.textContent = `~${est}s audio`;
   }
 
-  scriptText.addEventListener("input", updateScriptMeter);
+  scriptText.addEventListener("input", updateScriptStats);
+  scriptText.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (!btnSynthesize.disabled && !isSynthesizing) {
+        btnSynthesize.click();
+      }
+    }
+  });
+
   btnClearText.addEventListener("click", () => {
     scriptText.value = "";
-    updateScriptMeter();
+    updateScriptStats();
     scriptText.focus();
   });
 
@@ -324,7 +369,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (data.success) {
         await loadVoices();
         voiceSelect.value = data.name;
-        alert(`Voice sample "${data.name}" added successfully!`);
+        updateVoiceSelectionState();
       } else {
         alert("Upload error: " + data.error);
       }
@@ -334,14 +379,25 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   btnSynthesize.addEventListener("click", async () => {
+    if (isSynthesizing) return;
     const text = scriptText.value.trim();
     if (!text) {
       scriptText.focus();
       return;
     }
 
+    isSynthesizing = true;
+    synthStartTime = performance.now();
     btnSynthesize.disabled = true;
-    btnSynthesizeText.textContent = "Synthesizing Voiceover (CPU)...";
+    btnSynthesizeText.textContent = "Synthesizing... (0.0s)";
+    trackTitle.textContent = "Synthesizing Voiceover...";
+    trackMeta.textContent = `Voice: ${voiceSelect.selectedOptions[0]?.textContent || voiceSelect.value} (${languageSelect.value.toUpperCase()})`;
+
+    synthTimerInterval = setInterval(() => {
+      const sec = ((performance.now() - synthStartTime) / 1000).toFixed(1);
+      btnSynthesizeText.textContent = `Synthesizing... (${sec}s)`;
+      engineStatus.querySelector(".status-text").textContent = `Synthesizing (${sec}s)...`;
+    }, 100);
 
     const payload = {
       text: text,
@@ -359,15 +415,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (data.success) {
         playTrack(data.audio_url, data.filename, `Generated in ${data.elapsed}s • Coqui XTTS-v2`);
-        loadHistory();
+        await loadHistory();
       } else {
+        trackTitle.textContent = "Synthesis Failed";
+        trackMeta.textContent = data.error || "Unknown error";
         alert("Synthesis failed: " + (data.error || "Unknown error"));
       }
     } catch (e) {
+      trackTitle.textContent = "Network Error";
+      trackMeta.textContent = e.message;
       alert("Network error: " + e.message);
     } finally {
+      clearInterval(synthTimerInterval);
+      synthTimerInterval = null;
+      isSynthesizing = false;
       btnSynthesize.disabled = false;
       btnSynthesizeText.textContent = "Synthesize Voiceover";
+      engineStatus.querySelector(".status-text").textContent = "XTTS-v2 Ready";
     }
   });
 
@@ -376,13 +440,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   btnQuit.addEventListener("click", async () => {
-    if (confirm("Close XTTS Studio and shut down server?")) {
-      try { await fetch("/api/shutdown", JSON_POST); } catch (e) {}
-      setTimeout(() => { window.close(); }, 500);
-    }
+    try { await fetch("/api/shutdown", JSON_POST); } catch (e) {}
+    setTimeout(() => { window.close(); }, 300);
   });
-
-  // No shutdown beacon on unload: it made an ordinary page reload (Ctrl+R)
-  // kill the resident engine. The Qt window posts /api/shutdown from its
-  // closeEvent, and the 10s heartbeat watchdog covers the browser fallback.
 });

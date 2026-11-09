@@ -2,7 +2,7 @@
 """
 XTTS Studio - Desktop Voice Synthesis & Cloning Studio
 Lightweight Python server managing isolated Coqui XTTS v2 generation on CPU.
-Includes auto-shutdown watchdog on window close.
+Includes auto-shutdown watchdog on window close and pre-cached custom voice latents.
 """
 
 import http.server
@@ -16,7 +16,6 @@ import sys
 import threading
 import time
 import urllib.parse
-import uuid
 from email.parser import BytesParser
 from email.policy import default
 
@@ -25,6 +24,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 VOICES_DIR = os.path.join(BASE_DIR, "voices")
 OUTPUT_DIR = os.path.expanduser("~/Music/AI_Voice")
+HF_XTTS_CACHE = os.path.expanduser(
+    "~/.cache/huggingface/hub/models--tts-hub--XTTS-v2/snapshots"
+)
 
 DEFAULT_VENV = os.path.join(BASE_DIR, ".venv")
 VENV_DIR = os.environ.get("XTTS_VENV", DEFAULT_VENV)
@@ -63,6 +65,7 @@ def safe_join(base_dir, user_path):
         return None
     return target
 
+
 # XTTS-v2's 58 built-in pretrained speakers (from speakers_xtts.pth, bundled
 # with the model). Selectable via --speaker_idx instead of --speaker_wav,
 # so no reference audio upload is needed for these.
@@ -94,6 +97,10 @@ tts_engine = None
 tts_lock = threading.Lock()
 tts_loading = False
 tts_load_error = None
+tts_synthesizing = False
+tts_synth_started_at = 0.0
+voice_latent_mtimes = {}
+
 
 def force_soundfile_audio_backend():
     """Stops torchaudio from dispatching audio loads through libsox.
@@ -127,8 +134,41 @@ def force_soundfile_audio_backend():
     torchaudio.load = load_via_soundfile
 
 
+def ensure_custom_voice_cached(engine, voice_filename):
+    """Pre-computes and caches (gpt_cond_latent, speaker_embedding) in RAM for a
+    custom reference file in VOICES_DIR so synthesis starts immediately without
+    re-running the speaker/Perceiver encoders on every sentence."""
+    speaker_path = safe_join(VOICES_DIR, voice_filename)
+    if speaker_path is None or not os.path.isfile(speaker_path):
+        return None
+
+    speaker_key = f"custom:{voice_filename}"
+    mtime_ns = os.stat(speaker_path).st_mtime_ns
+    model = engine.synthesizer.tts_model
+
+    if (
+        speaker_key in model.speaker_manager.speakers
+        and voice_latent_mtimes.get(speaker_key) == mtime_ns
+    ):
+        return speaker_key
+
+    gpt_cond, spk_emb = model.get_conditioning_latents(
+        audio_path=speaker_path,
+        gpt_cond_len=model.config.gpt_cond_len,
+        gpt_cond_chunk_len=model.config.gpt_cond_chunk_len,
+        max_ref_length=model.config.max_ref_len,
+    )
+    model.speaker_manager.speakers[speaker_key] = {
+        "gpt_cond_latent": gpt_cond,
+        "speaker_embedding": spk_emb,
+    }
+    voice_latent_mtimes[speaker_key] = mtime_ns
+    return speaker_key
+
+
 def warm_tts_engine():
-    """Asynchronously loads XTTS-v2 into RAM on CPU once at startup."""
+    """Asynchronously loads XTTS-v2 into RAM on CPU once at startup and
+    pre-caches conditioning latents for all custom reference voices."""
     global tts_engine, tts_loading, tts_load_error
     if tts_engine is not None or tts_loading:
         return
@@ -139,34 +179,66 @@ def warm_tts_engine():
         os.environ["ROCR_VISIBLE_DEVICES"] = ""
         os.environ["HIP_VISIBLE_DEVICES"] = ""
         os.environ["COQUI_TOS_AGREED"] = "1"
+        if os.path.isdir(HF_XTTS_CACHE) and os.listdir(HF_XTTS_CACHE):
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
         force_soundfile_audio_backend()
+        import torch
+        # 8 compute threads = 1 thread per physical Zen 3 core on Ryzen 7 5700X
+        torch.set_num_threads(8)
+
         from TTS.api import TTS
         engine = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cpu")
+
+        # Pre-cache conditioning latents for all custom voices in ./voices/
+        for entry in sorted(os.listdir(VOICES_DIR)):
+            if entry.lower().endswith(VOICE_FILE_EXTENSIONS):
+                try:
+                    ensure_custom_voice_cached(engine, entry)
+                    print(f"  🧬 Cached custom voice latents: {entry}")
+                except Exception as ve:
+                    print(f"  ⚠️ Could not pre-cache {entry}: {ve}")
+
         with tts_lock:
             tts_engine = engine
             tts_loading = False
-        print("🚀 XTTS-v2 engine is warm and resident in RAM!")
+        print("🚀 XTTS-v2 engine and custom voices are warm and resident in RAM!")
     except Exception as e:
         tts_loading = False
         tts_load_error = str(e)
         print(f"❌ Failed to warm XTTS engine: {e}")
 
+
 def watchdog_loop():
-    """Auto-shuts down if UI window is closed (no heartbeat for 10s)."""
+    """Auto-shuts down if UI window is closed (no heartbeat for 15s while idle)."""
     global last_heartbeat, has_received_heartbeat, server_instance
     while True:
         time.sleep(2)
-        if has_received_heartbeat:
+        if has_received_heartbeat and not tts_synthesizing:
             elapsed = time.time() - last_heartbeat
-            if elapsed > 10:
+            if elapsed > 15:
                 print(f"⚠️ XTTS Studio closed (inactive for {elapsed:.1f}s). Shutting down...")
                 if server_instance:
                     threading.Thread(target=server_instance.shutdown).start()
                 os._exit(0)
 
+
+def normalize_script_text(text: str) -> str:
+    """Normalizes em-dashes and ensures terminal punctuation so XTTS-v2's
+    autoregressive decoder cleanly hits EOS on short phrases."""
+    cleaned = text.replace("—", ", ").strip()
+    if cleaned and cleaned[-1] not in ".!?…:;":
+        cleaned += "."
+    return cleaned
+
+
 class XTTSHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
-        sys.stdout.write(f"[{time.strftime('%H:%M:%S')}] {format % args}\n")
+        # Suppress noisy heartbeat/status logs to keep terminal output clean
+        msg = format % args
+        if "/api/heartbeat" in msg or "/api/status" in msg:
+            return
+        sys.stdout.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
         sys.stdout.flush()
 
     def request_is_local(self):
@@ -231,6 +303,8 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_api_synthesize()
         elif path == "/api/upload_voice":
             self.handle_upload_voice()
+        elif path == "/api/delete_audio":
+            self.handle_delete_audio()
         elif path == "/api/open_folder":
             self.handle_open_folder()
         elif path == "/api/shutdown":
@@ -247,9 +321,9 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
     def handle_shutdown(self):
         self.send_json({"success": True, "message": "Exiting XTTS Studio..."})
         def perform_exit():
-            time.sleep(0.5)
+            time.sleep(0.3)
             os._exit(0)
-        threading.Thread(target=perform_exit).start()
+        threading.Thread(target=perform_exit, daemon=True).start()
 
     def serve_contained(self, base_dir, relative_path, content_type=None):
         target = safe_join(base_dir, relative_path)
@@ -313,6 +387,7 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(file_size))
                 self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
                 self.wfile.write(data)
         except Exception as e:
@@ -344,12 +419,15 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
         is_ready = os.path.isfile(tts_bin) and os.access(tts_bin, os.X_OK)
         voices = [f for f in os.listdir(VOICES_DIR)
                   if f.lower().endswith(VOICE_FILE_EXTENSIONS)]
+        synth_elapsed = round(time.time() - tts_synth_started_at, 1) if tts_synthesizing else 0.0
 
         self.send_json({
             "ready": is_ready,
             "model_loaded": (tts_engine is not None),
             "model_loading": tts_loading,
             "model_error": tts_load_error,
+            "synthesizing": tts_synthesizing,
+            "synth_elapsed": synth_elapsed,
             "engine": "Coqui XTTS v2 (Warm In-Memory CPU)",
             "venv_path": VENV_DIR,
             "voices_count": len(voices),
@@ -383,6 +461,22 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
         audios.sort(key=lambda x: x["mtime"], reverse=True)
         self.send_json({"audios": audios, "count": len(audios)})
 
+    def handle_delete_audio(self):
+        payload = self.read_json_body()
+        filename = payload.get("filename", "")
+        if not filename:
+            self.send_json({"error": "Filename required"}, status_code=400)
+            return
+        target = safe_join(OUTPUT_DIR, filename)
+        if target is None or not os.path.isfile(target):
+            self.send_json({"error": "Audio file not found"}, status_code=404)
+            return
+        try:
+            subprocess.run(["gio", "trash", target], check=True)
+            self.send_json({"success": True})
+        except Exception as e:
+            self.send_json({"error": str(e)}, status_code=500)
+
     def handle_open_folder(self):
         try:
             subprocess.Popen(["xdg-open", OUTPUT_DIR], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -401,8 +495,6 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": "Empty upload"}, status_code=400)
             return
         if length > MAX_UPLOAD_BYTES:
-            # The whole body is parsed in memory, so an unbounded upload is a
-            # way to exhaust RAM on this machine.
             self.send_json(
                 {"error": f"Upload exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit"},
                 status_code=413)
@@ -419,8 +511,6 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
                     safe_name = os.path.basename(filename).replace(" ", "_")
                     ext = os.path.splitext(safe_name)[1].lower()
                     if ext not in VOICE_FILE_EXTENSIONS:
-                        # Renaming an MP3 to .wav used to hide the real format
-                        # until XTTS failed to decode it, with no useful error.
                         self.send_json(
                             {"error": "Unsupported audio format: "
                                       f"{ext or 'no extension'}. "
@@ -434,6 +524,12 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
                     file_bytes = part.get_payload(decode=True)
                     with open(dest_path, "wb") as f:
                         f.write(file_bytes)
+                    if tts_engine is not None:
+                        try:
+                            with tts_lock:
+                                ensure_custom_voice_cached(tts_engine, os.path.basename(dest_path))
+                        except Exception as ce:
+                            print(f"⚠️ Warning caching uploaded voice {safe_name}: {ce}")
                     self.send_json({"success": True, "name": os.path.basename(dest_path)})
                     return
 
@@ -442,20 +538,22 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": str(e)}, status_code=500)
 
     def handle_api_synthesize(self):
-        global tts_engine, tts_loading, tts_load_error
+        global tts_engine, tts_loading, tts_load_error, tts_synthesizing, tts_synth_started_at
         payload = self.read_json_body()
-        text = payload.get("text", "").strip()
+        raw_text = payload.get("text", "").strip()
         voice_file = payload.get("voice", "Vjollca Johnnie")
         lang = payload.get("language", "en")
 
-        if not text:
+        if not raw_text:
             self.send_json({"error": "Text is required"}, status_code=400)
             return
+
+        text = normalize_script_text(raw_text)
 
         # Engine readiness check (wait if background warm-up is in progress)
         if tts_engine is None:
             if tts_loading:
-                for _ in range(60):
+                for _ in range(90):
                     if tts_engine is not None:
                         break
                     time.sleep(0.5)
@@ -466,20 +564,21 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
 
         is_builtin = voice_file in BUILTIN_SPEAKERS
 
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        out_filename = f"Voice_{timestamp}_{lang}.wav"
-        out_path = os.path.join(OUTPUT_DIR, out_filename)
-        # Two syntheses inside the same second would otherwise overwrite one
-        # another, and the second one's history entry would point at the first.
-        suffix = 1
-        while os.path.exists(out_path):
-            out_filename = f"Voice_{timestamp}_{lang}_{suffix}.wav"
-            out_path = os.path.join(OUTPUT_DIR, out_filename)
-            suffix += 1
-
-        t0 = time.time()
         try:
             with tts_lock:
+                tts_synthesizing = True
+                tts_synth_started_at = time.time()
+                t0 = tts_synth_started_at
+
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                out_filename = f"Voice_{timestamp}_{lang}.wav"
+                out_path = os.path.join(OUTPUT_DIR, out_filename)
+                suffix = 1
+                while os.path.exists(out_path):
+                    out_filename = f"Voice_{timestamp}_{lang}_{suffix}.wav"
+                    out_path = os.path.join(OUTPUT_DIR, out_filename)
+                    suffix += 1
+
                 if is_builtin:
                     tts_engine.tts_to_file(
                         text=text,
@@ -488,19 +587,22 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
                         file_path=out_path
                     )
                 else:
-                    speaker_path = safe_join(VOICES_DIR, voice_file)
-                    if speaker_path is None or not os.path.isfile(speaker_path):
-                        self.send_json({"error": f"Voice reference file not found: {voice_file}", "success": False}, status_code=404)
+                    speaker_key = ensure_custom_voice_cached(tts_engine, voice_file)
+                    if speaker_key is None:
+                        self.send_json(
+                            {"error": f"Voice reference file not found: {voice_file}", "success": False},
+                            status_code=404
+                        )
                         return
                     tts_engine.tts_to_file(
                         text=text,
-                        speaker_wav=speaker_path,
+                        speaker=speaker_key,
                         language=lang,
                         file_path=out_path
                     )
 
-            elapsed = round(time.time() - t0, 1)
-            file_size = os.path.getsize(out_path)
+                elapsed = round(time.time() - t0, 1)
+                file_size = os.path.getsize(out_path)
 
             self.send_json({
                 "success": True,
@@ -512,10 +614,14 @@ class XTTSHandler(http.server.SimpleHTTPRequestHandler):
             })
         except Exception as e:
             self.send_json({"error": f"Synthesis error: {e}", "success": False}, status_code=500)
+        finally:
+            tts_synthesizing = False
+
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
     daemon_threads = True
+
 
 def run():
     global server_instance
@@ -541,6 +647,7 @@ def run():
     except KeyboardInterrupt:
         print("\nStopping XTTS Studio...")
         server_instance.shutdown()
+
 
 if __name__ == "__main__":
     run()

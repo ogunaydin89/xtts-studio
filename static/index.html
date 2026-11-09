@@ -36,7 +36,7 @@
             <rect x="4" y="4" width="16" height="16" rx="2" />
             <rect x="9" y="9" width="6" height="6" />
           </svg>
-          <span>Ryzen 7 CPU (100% VRAM Free)</span>
+          <span>Ryzen 7 CPU • 8 Zen 3 Cores (100% VRAM Free)</span>
         </div>
       </div>
 
@@ -64,16 +64,16 @@
         <!-- Speaker Voice -->
         <section class="panel-section">
           <div class="section-header">
-            <span class="section-label">Speaker Reference Voice</span>
-            <button type="button" class="link-btn" id="btnPreviewVoice">Audition Sample</button>
+            <span class="section-label">Speaker Voice</span>
+            <button type="button" class="link-btn" id="btnPreviewVoice">Audition Reference</button>
           </div>
           <div class="voice-select-row">
             <select id="voiceSelect" class="form-select">
-              <optgroup label="My Voices" id="myVoicesGroup">
-                <option value="narrator_default.wav">Narrator Default</option>
-              </optgroup>
               <optgroup label="Built-in Voices (58)" id="builtinVoicesGroup">
                 <option value="Vjollca Johnnie" selected>Vjollca Johnnie</option>
+              </optgroup>
+              <optgroup label="My Voices" id="myVoicesGroup">
+                <option value="narrator_default.wav">Narrator Default</option>
               </optgroup>
             </select>
           </div>
@@ -114,23 +114,23 @@
           </select>
         </section>
 
-        <!-- Script Textarea & Timing Meter -->
+        <!-- Script Textarea & Stats -->
         <section class="panel-section flex-grow">
           <div class="section-header">
             <span class="section-label">Script / Speech Text</span>
             <button type="button" class="link-btn" id="btnClearText">Clear</button>
           </div>
-          <textarea id="scriptText" class="form-textarea script-area" rows="6" placeholder="Enter script here. Calibrated for high-energy narration..."></textarea>
-          
-          <div class="shorts-meter" id="shortsMeter">
+          <textarea id="scriptText" class="form-textarea script-area" rows="7" placeholder="Enter narration script here... (Ctrl+Enter to synthesize)"></textarea>
+
+          <div class="script-stats" id="scriptStats">
             <div class="meter-info">
               <span class="meter-words" id="wordCount">0 words</span>
               <span class="meter-dot">•</span>
               <span class="meter-chars" id="charCount">0 chars</span>
               <span class="meter-dot">•</span>
-              <span class="meter-est" id="estDuration">~0.0s est.</span>
+              <span class="meter-est" id="estDuration">~0.0s audio</span>
             </div>
-            <div class="meter-badge" id="meterBadge">Shorts Meter</div>
+            <span class="shortcut-hint">Ctrl+Enter</span>
           </div>
         </section>
 
@@ -158,13 +158,13 @@
             </div>
             <div class="track-details">
               <h2 class="track-title" id="trackTitle">Ready to Synthesize</h2>
-              <div class="track-meta" id="trackMeta">Select a voice, write your script, and hit Synthesize</div>
+              <div class="track-meta" id="trackMeta">Select a voice, write your script, and click Synthesize</div>
             </div>
           </div>
 
           <div class="custom-player">
             <audio id="audioElement" preload="metadata"></audio>
-            
+
             <div class="player-controls">
               <button class="play-btn" id="btnPlayPause" disabled>
                 <svg id="playIcon" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
@@ -198,7 +198,7 @@
 
         <div class="history-section">
           <div class="history-header">
-            <span class="section-label">Voiceover History</span>
+            <span class="section-label">Voiceover History (~/Music/AI_Voice)</span>
             <span class="history-count" id="historyCount">0 recordings</span>
           </div>
           <div class="history-list" id="historyList"></div>

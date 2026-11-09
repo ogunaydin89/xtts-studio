@@ -5,14 +5,14 @@
   --bg-hover: #22293b;
   --border-subtle: #242c40;
   --border-focus: #f59e0b;
-  
+
   --text-main: #f3f4f6;
   --text-muted: #9ca3af;
   --text-dim: #6b7280;
 
   --accent-primary: #f59e0b;
   --accent-gradient: linear-gradient(135deg, #ea580c 0%, #f59e0b 50%, #eab308 100%);
-  
+
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
@@ -189,9 +189,8 @@ body {
 }
 
 .btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  filter: grayscale(0.5);
+  opacity: 0.65;
+  cursor: wait;
 }
 
 .link-btn {
@@ -308,8 +307,8 @@ body {
   flex: 1;
 }
 
-/* SHORTS PACING METER */
-.shorts-meter {
+/* SCRIPT STATS */
+.script-stats {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -331,26 +330,14 @@ body {
   color: var(--border-subtle);
 }
 
-.meter-badge {
+.shortcut-hint {
   font-size: 11px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 12px;
-  background: var(--bg-hover);
   color: var(--text-dim);
-  transition: all 0.2s;
-}
-
-.meter-badge.badge-perfect {
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--success);
-  border: 1px solid rgba(16, 185, 129, 0.4);
-}
-
-.meter-badge.badge-warning {
-  background: rgba(245, 158, 11, 0.2);
-  color: var(--warning);
-  border: 1px solid rgba(245, 158, 11, 0.4);
+  font-family: monospace;
+  background: var(--bg-surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
 }
 
 .panel-bottom {
@@ -561,9 +548,36 @@ body {
   color: var(--text-dim);
 }
 
+.item-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .item-size {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.btn-trash-item {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.btn-trash-item:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 /* DANGER */
