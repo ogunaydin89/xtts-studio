@@ -85,42 +85,6 @@ property of the *system* library, so it is not fixed by changing PyTorch builds.
 
 ---
 
-## 🔒 Local Attack Surface
-
-The server binds to loopback only, and additionally:
-
-- **Paths are contained.** `/static/`, `/api/audio/` and `/api/voice_preview/`
-  all resolve through `safe_join()`, which rejects anything landing outside its
-  base directory — including percent-encoded traversal (`%2e%2e%2f`).
-- **The `Host` header is checked** against `127.0.0.1`/`localhost`/`[::1]` on the
-  Studio's own port, so a hostname that merely resolves to `127.0.0.1` (DNS
-  rebinding) cannot reach these endpoints.
-- **Writes require a same-origin request.** JSON endpoints must carry
-  `Content-Type: application/json` — which cannot be sent cross-origin without a
-  CORS preflight this server never answers — and any request arriving with
-  `Sec-Fetch-Site: cross-site` is refused, which is what protects the
-  necessarily-multipart `/api/upload_voice`. Responses carry no
-  `Access-Control-Allow-Origin`, so no other page can read them either.
-- **Uploads are bounded and typed.** The whole multipart body is parsed in
-  memory, so it is capped at 64MB, and only `.wav` / `.mp3` / `.flac` are
-  accepted. An unsupported file is rejected outright rather than renamed to
-  `.wav`, which used to defer the failure to an opaque XTTS decode error.
-
----
-
-## 📦 GitHub Git Setup
-
-```bash
-git init
-git add .
-git commit -m "feat: initial commit of XTTS Studio"
-git remote add origin https://github.com/ogunaydin89/xtts-studio.git
-git branch -M main
-git push -u origin main
-```
-
----
-
 ## 📄 License
 
 MIT © Ogün Aydın ([ogunaydin89](https://github.com/ogunaydin89))
