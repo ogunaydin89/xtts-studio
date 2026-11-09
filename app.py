@@ -9,6 +9,7 @@ import http.server
 import json
 import mimetypes
 import os
+import re
 import shutil
 import socketserver
 import subprocess
@@ -223,13 +224,51 @@ def watchdog_loop():
                 os._exit(0)
 
 
+def _split_long_sentence(sentence: str, max_len: int = 235) -> list[str]:
+    """Recursively splits a sentence exceeding max_len at the nearest clause
+    boundary (; : ,) or word boundary near the midpoint so XTTS-v2 never
+    truncates audio at its 250-character limit."""
+    s = sentence.strip()
+    if len(s) <= max_len:
+        return [s] if s else []
+
+    mid = len(s) // 2
+    best_idx = -1
+    for sep in ("; ", ": ", ", ", " "):
+        # Search outward from midpoint within [40..max_len-10]
+        left = s.rfind(sep, 40, min(len(s), max_len))
+        right = s.find(sep, mid, min(len(s), max_len))
+        candidates = [i for i in (left, right) if i != -1]
+        if candidates:
+            best_idx = min(candidates, key=lambda i: abs(i - mid)) + len(sep) - 1
+            break
+
+    if best_idx == -1:
+        best_idx = max_len
+
+    first = s[:best_idx].rstrip(" ,;:") + "."
+    rest = s[best_idx:].lstrip(" ,;:")
+    return [first] + _split_long_sentence(rest, max_len)
+
+
 def normalize_script_text(text: str) -> str:
-    """Normalizes em-dashes and ensures terminal punctuation so XTTS-v2's
-    autoregressive decoder cleanly hits EOS on short phrases."""
-    cleaned = text.replace("—", ", ").strip()
-    if cleaned and cleaned[-1] not in ".!?…:;":
+    """Normalizes em-dashes, ensures terminal punctuation, and splits sentences
+    longer than 235 characters at clause boundaries so XTTS-v2 never truncates."""
+    cleaned = re.sub(r"\s+", " ", text.replace("—", ", ")).strip()
+    if not cleaned:
+        return ""
+    if cleaned[-1] not in ".!?…":
         cleaned += "."
-    return cleaned
+
+    raw_sentences = re.split(r"(?<=[.!?…])\s+", cleaned)
+    out_sentences = []
+    for sen in raw_sentences:
+        if not sen:
+            continue
+        if sen[-1] not in ".!?…":
+            sen += "."
+        out_sentences.extend(_split_long_sentence(sen, 235))
+    return " ".join(out_sentences)
 
 
 class XTTSHandler(http.server.SimpleHTTPRequestHandler):

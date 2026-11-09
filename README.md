@@ -10,17 +10,17 @@ XTTS Studio gives you instantaneous voice synthesis and reference-cloning capabi
 
 - **🚀 Zero-Dependency Server Layer**: The studio backend is pure Python 3 standard library + responsive HTML5/CSS3/ES6. No Node.js, no Electron, no pip dependencies for the interface layer.
 - **⚡ Native Qt6 Window**: Launches in a distraction-free isolated `QWebEngineView` desktop window (`window.py`) served from the project's own `.venv` — no Google Chrome dependency. A browser or Chrome app-mode fallback remains in `run.sh` if PyQt6 is unavailable.
-  - Closing: the in-page quit button cannot close a top-level `QWebEngineView` window by itself, so `window.py` runs a backend-liveness watchdog (`QTimer` polling `/api/status`) and closes the window once the backend stops.
+  - Closing: `window.py` connects `QWebEnginePage.windowCloseRequested` for instant shutdown on clicking **Quit Studio**, backed by a lightweight TCP socket liveness watchdog.
 - **🔥 Warm In-Memory Engine & Pre-Cached Voice Latents**: XTTS-v2 is loaded into RAM once at startup (`HF_HUB_OFFLINE=1` when cached locally), and custom reference voices in `./voices/` have their `(gpt_cond_latent, speaker_embedding)` conditioning tensors pre-computed in RAM so synthesis begins instantaneously on click.
 - **🧬 Dynamic Voice Cloning**: Select from preset narrator voices or drag and drop your own 3–12 second `.wav`/`.mp3`/`.flac` audio sample to clone a target voice.
 - **🎭 58 Built-in Speakers**: XTTS-v2's bundled pretrained speakers (`speakers_xtts.pth`) are exposed directly in the voice picker (defaulting to `Vjollca Johnnie`), so no reference audio is needed to get a studio narrator.
-- **📊 Script Word & Duration Counter**: Real-time word, character, and estimated audio duration counter with `Ctrl+Enter` synthesis shortcut.
+- **📊 Script Word & Duration Counter**: Real-time word, character, and estimated audio duration counter with `Ctrl+Enter` synthesis shortcut and automatic clause-boundary splitting for sentences exceeding XTTS-v2's 250-character limit.
 - **🌍 Multilingual Speech**: all 17 languages XTTS-v2 declares in its own
   `config.json` — English, Turkish, German, Spanish, French, Italian, Japanese,
   Portuguese, Polish, Russian, Arabic, Chinese, Dutch, Czech, Hungarian, Korean
   and Hindi.
 - **🛡️ Hardware Isolation**: Runs strictly on the CPU (e.g. 16-thread Ryzen 7) with discrete GPU/VRAM masking (`CUDA_VISIBLE_DEVICES=""`), keeping 100% of GPU resources free for concurrent image/diffusion workloads.
-- **🎧 Built-in Audio Player & History**: Audition voice clips immediately with seek-bar scrubbing (backed by HTTP range requests), and open the output folder directly in Dolphin. Every synthesis is already written to `~/Music/AI_Voice`, so the native window suppresses the redundant in-page download.
+- **🎧 Built-in Audio Player & History**: Audition voice clips immediately with seek-bar scrubbing (backed by HTTP range requests), trash unwanted takes directly to the system Recycle Bin (`gio trash`), and open `~/Music/AI_Voice` in Dolphin with one click.
 
 ---
 

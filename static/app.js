@@ -22,7 +22,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const audioScrubber = document.getElementById("audioScrubber");
   const timeCurrent = document.getElementById("timeCurrent");
   const timeTotal = document.getElementById("timeTotal");
-  const btnDownloadAudio = document.getElementById("btnDownloadAudio");
   const trackTitle = document.getElementById("trackTitle");
   const trackMeta = document.getElementById("trackMeta");
   const historyList = document.getElementById("historyList");
@@ -248,9 +247,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     btnPlayPause.disabled = false;
     audioScrubber.disabled = false;
-    btnDownloadAudio.classList.remove("disabled");
-    btnDownloadAudio.href = url;
-    btnDownloadAudio.download = title.endsWith(".wav") ? title : title + ".wav";
 
     audioElement.play().then(() => {
       setPlayState(true);
@@ -441,6 +437,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   btnQuit.addEventListener("click", async () => {
     try { await fetch("/api/shutdown", JSON_POST); } catch (e) {}
-    setTimeout(() => { window.close(); }, 300);
+    window.close();
   });
 });

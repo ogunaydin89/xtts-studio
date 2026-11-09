@@ -12,7 +12,7 @@ import urllib.parse
 from PyQt6.QtCore import QUrl, QTimer
 from PyQt6.QtWidgets import QApplication, QMainWindow
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
+from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineSettings
 from PyQt6.QtGui import QIcon
 
 
@@ -33,8 +33,11 @@ class StudioWindow(QMainWindow):
             self.setWindowIcon(QIcon(icon_path))
 
         self.profile = QWebEngineProfile("xtts-studio-isolated", self)
-        self.profile.downloadRequested.connect(self._handle_download)
         self.page = QWebEnginePage(self.profile, self)
+        self.page.settings().setAttribute(
+            QWebEngineSettings.WebAttribute.JavascriptCanCloseWindows, True
+        )
+        self.page.windowCloseRequested.connect(self.close)
 
         self.browser = QWebEngineView(self)
         self.browser.setPage(self.page)
@@ -48,14 +51,6 @@ class StudioWindow(QMainWindow):
         self._backend_watchdog = QTimer(self)
         self._backend_watchdog.timeout.connect(self._check_backend_alive)
         self._backend_watchdog.start(2000)
-
-    def _handle_download(self, download):
-        """Every synthesis is already saved permanently in ~/Music/AI_Voice
-        by the backend, so the in-page WAV download button would otherwise
-        just create a redundant duplicate copy. Cancel it rather than
-        leaving the request unanswered, which QWebEngineView treats as
-        silently doing nothing on click."""
-        download.cancel()
 
     def _check_backend_alive(self):
         if self._closing:
